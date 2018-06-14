@@ -10,6 +10,7 @@ Compressall is just one part of a package. In order to get full functionality, g
 
 Make sure to get either the Linux or Windows version, depending on your server.
 
+	NOT IN USE: HTML:			HTML Purifier (Standalone Distribution) http://htmlpurifier.org/download
 	Video, Audio:	FFMPEG http://ffmpeg.org/download.html
 	Images:			ImageMagick (Portable Version) http://www.imagemagick.org/script/download.php
 */
@@ -159,12 +160,19 @@ while(file_exists($newName.$append.'.'.$convertTo)){
 $newName.=$append.'.'.$convertTo;
 
 #Build the shell command
-$shellString=$packageFolder;
+$shellString=null;
 
 switch($tempType){
+	case 'text':
+		switch($tempExtension){
+			case 'html':
+			default:
+				break;
+		}
+		break;
 	case 'video':
 	case 'audio':
-		$shellString.='ffmpeg\ffmpeg.'.$packageExtension
+		$shellString=$packageFolder.'ffmpeg\ffmpeg.'.$packageExtension
 		.' -i '
 		.'"'.$tempName.'" ';
 		
@@ -176,7 +184,7 @@ switch($tempType){
 	case 'image':
 		#Exception for svg; ImageMagick doesn't support SVG
 	
-		$shellString.='imagemagick\magick.'.$packageExtension
+		$shellString=$packageFolder.'imagemagick\magick.'.$packageExtension
 		.' convert '
 		.'"'.$tempName.'" ';
 		
@@ -190,18 +198,22 @@ switch($tempType){
 		break;
 }
 
-#Run the shell command to convert the file
-shell_exec($shellString);
+#Not every option uses shell commands
+if(!empty($shellString)){
+	$shellResponse=[];
+	exec($shellString.' 2>&1',$shellResponse,$shellResponse);
 
-#Delete the temporary file, we don't need it now
-unlink($tempName);
-
-#Basic upload
-#rename($tempName,$fileOutput['name']);
+	#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
+	if($shellResponse==0) $response['success']=true;
+	else echo 'Failed to convert the file!';
+	
+	unlink($tempName);
+}
+else $response['success']=rename($tempName,$fileOutput['name']);
 
 $response['file']=$newName;
 
-$response['success']=true;
+$response['message']=ob_get_clean();
 die(json_encode($response));
 
 ?>
