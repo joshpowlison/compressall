@@ -10,10 +10,10 @@ Compressall is just one part of a package. In order to get full functionality, g
 
 Make sure to get either the Linux or Windows version, depending on your server.
 
-	NOT IN USE: HTML:	HTML Purifier (Standalone Distribution) http://htmlpurifier.org/download
 	Video, Audio:		FFMPEG http://ffmpeg.org/download.html
 	Images:				ImageMagick (Portable Version) http://www.imagemagick.org/script/download.php
-	Word and PDF:		LibreOffice (Full Install; get "LibreOffice 5" folder and paste contents) https://www.libreoffice.org/download/download/
+	Text:				LibreOffice (Full Install; get "LibreOffice 5" folder and paste contents) https://www.libreoffice.org/download/download/
+	NOT IN USE: HTML:	HTML Purifier (Standalone Distribution) http://htmlpurifier.org/download
 */
 
 #Uncomment the below to show errors
@@ -45,18 +45,12 @@ ob_start();
 ######### FILL OUT THE FOLLOWING #########
 ##########################################
 
-$packageFolder='';			#If same as current folder, keep blank
-#$packageExtension='...';	#Linux
-$packageExtension='exe';	#Windows
+$os='windows';				#linux/windows. Remember to switch if you're moving between windows and linux for local and server!
+$libraries='libraries/';	#The folder for the libraries
+$pathOutput='';				#Path to put the files in
 
-$pathOutput='';				#Path to put the new file in. Blank is same as compressall.php's folder
+$whitelist=[];				#If empty, anything can pass
 
-#Files with these extensions only are allowed (keep empty to allow anything not in the blacklist)
-$whitelist=[
-	'image'
-];
-
-#Files with these extensions or types aren't accepted
 $blacklist=[
 	'exe'
 	,'js'
@@ -71,11 +65,16 @@ $conversions=[
 	,'rtf'		=>	'txt'
 ];
 
+#Command-line compression commands
 $compressions=[
-	'jpg'		=>	'-strip -quality 50' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
-	,'png'		=>	'-define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
-	,'mp3'		=>	'-b:a 128k' #From http://williamyaps.blogspot.com/2016/12/i-success-with-this-command-ffmpeg-i.html
-	,'mp4'		=>	' \ -c:v libx264 -crf 19 -level 3.1 -preset slow -tune film \ -filter:v scale=-1:720 -sws_flags lanczos \ -c:a libfdk_aac -vbr 5 \ ' #From https://superuser.com/questions/582198/how-can-i-get-high-quality-low-size-mp4s-like-the-lol-release-group
+	#From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+	'jpg'		=>	'-strip -quality 50'
+	#From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+	,'png'		=>	'-define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1'
+	#From http://williamyaps.blogspot.com/2016/12/i-success-with-this-command-ffmpeg-i.html
+	,'mp3'		=>	'-b:a 128k'
+	#From https://superuser.com/questions/582198/how-can-i-get-high-quality-low-size-mp4s-like-the-lol-release-group
+	,'mp4'		=>	' \ -c:v libx264 -crf 19 -level 3.1 -preset slow -tune film \ -filter:v scale=-1:720 -sws_flags lanczos \ -c:a libfdk_aac -vbr 5 \ '
 ];
 
 ##########################################
@@ -85,19 +84,17 @@ $compressions=[
 #Get file
 
 if($_FILES['file']['error']!==UPLOAD_ERR_OK){
-	die(
-		#Error messages: http://php.net/manual/en/features.file-upload.errors.php
-		[
-			'Upload okay but we\'re still here somehow!'
-			,'Uploaded file size too big according to php.ini!'
-			,'Uploaded file size too big according to HTML form!'
-			,'File only uploaded partially!'
-			,'No file found!'
-			,'Missing a temporary folder!'
-			,'Failed to write to disk!'
-			,'A PHP extension stopped the upload!'
-		][$_FILES['file']['error']]
-	);
+	#Error messages: http://php.net/manual/en/features.file-upload.errors.php
+	echo [
+		'Upload okay but we\'re still here somehow!'
+		,'Uploaded file size too big according to php.ini!'
+		,'Uploaded file size too big according to HTML form!'
+		,'File only uploaded partially!'
+		,'No file found!'
+		,'Missing a temporary folder!'
+		,'Failed to write to disk!'
+		,'A PHP extension stopped the upload!'
+	][$_FILES['file']['error']];
 }
 
 $fileOutput=$_FILES["file"];
@@ -196,18 +193,18 @@ switch($tempType){
 			case 'docx':
 			case 'odt':
 			case 'pdf':
-				$shellString='"libraries\libreoffice\program\soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+				$shellString='"'.$libraries.'\libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
 				break;
 			default:
 				break;
 		}
 		break;
 	case 'text':
-		if(array_key_exists($tempExtension,$conversions)) $shellString='"libraries\libreoffice\program\soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+		if(array_key_exists($tempExtension,$conversions)) $shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
 		break;
 	case 'video':
 	case 'audio':
-		$shellString=$packageFolder.'libraries\ffmpeg\ffmpeg.'.$packageExtension
+		$shellString=$libraries.'ffmpeg/ffmpeg.'.($os=='windows' ? 'exe' : 'bin')
 		.' -i '
 		.'"'.$tempName.'" ';
 		
@@ -217,16 +214,22 @@ switch($tempType){
 		$shellString.=' "'.$newName.'"';
 		break;
 	case 'image':
-		#Exception for svg; ImageMagick doesn't support SVG
-	
-		$shellString=$packageFolder.'libraries\imagemagick\magick.'.$packageExtension
-		.' convert '
-		.'"'.$tempName.'" ';
-		
-		#Compression
-		if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
-		
-		$shellString.=' "'.$newName.'"';
+		switch($convertTo){
+			#Exception for svg; ImageMagick doesn't support SVG
+				case 'svg':
+				break;
+			default:
+			
+				$shellString=$libraries.'imagemagick/magick.'.($os=='windows' ? 'exe' : 'bin')
+				.' convert '
+				.'"'.$tempName.'" ';
+				
+				#Compression
+				if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
+				
+				$shellString.=' "'.$newName.'"';
+				break;
+		}
 		break;
 	default:
 		echo 'This type of file is unsupported! '.$tempInfo;
@@ -236,6 +239,8 @@ switch($tempType){
 $shellResponse=[];
 #Not every option uses shell commands
 if(!empty($shellString)){
+	if($os='windows') $shellString=str_replace('/','\\',$shellString);
+	
 	exec($shellString.' 2>&1',$shellResponse,$shellResponse);
 
 	#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
