@@ -48,6 +48,7 @@ ob_start();
 $os='windows';				#linux/windows. Remember to switch if you're moving between windows and linux for local and server!
 $libraries='libraries/';	#The folder for the libraries
 $pathOutput='';				#Path to put the files in
+$testing=true;				#Echo private info
 
 $whitelist=[];				#If empty, anything can pass
 
@@ -81,8 +82,8 @@ $compressions=[
 ################## CODE ##################
 ##########################################
 
-#Null=OK; true=success; false=failure
-$success=null;
+$success=null;	#Null=OK; true=success; false=failure
+$time=time();	#We don't want millisecond change to confuse file naming
 
 #Get file
 
@@ -157,7 +158,7 @@ if(!empty($pathOutput)) chdir($pathOutput);
 
 if(!move_uploaded_file(
 	$fileOutput['tmp_name']
-	,$tempName='temp'.time().'.'.$tempExtension
+	,$tempName='temp-uploaded-'.$time.'.'.$tempExtension
 )){
 	$success=false;
 	echo 'Failed to move the file!';
@@ -178,6 +179,7 @@ if($success!==false){
 
 	#LibreOffice uses : for special conversion values
 	$convertTo=explode(':',$convertTo)[0];
+	$convertTempName='temp-converting-'.$time.'.'.$convertTo; #LibreOffice does work differently, so this will be set again for LibreOffice
 
 	#Get the new filename, but make sure current file doesn't exist
 	$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME);
@@ -203,14 +205,18 @@ if($success!==false){
 				case 'docx':
 				case 'odt':
 				case 'pdf':
-					$shellString='"'.$libraries.'\libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+					$shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+					$convertTempName='temp-uploaded-'.$time.'.'.$convertTo;
 					break;
 				default:
 					break;
 			}
 			break;
 		case 'text':
-			if(array_key_exists($tempExtension,$conversions)) $shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+			if(array_key_exists($tempExtension,$conversions)){ 
+				$shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+				$convertTempName='temp-uploaded-'.$time.'.'.$convertTo;
+			}
 			break;
 		case 'video':
 		case 'audio':
@@ -221,7 +227,7 @@ if($success!==false){
 			#Compression
 			if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
 			
-			$shellString.=' "'.$newName.'"';
+			$shellString.=' "'.$convertTempName.'"';
 			break;
 		case 'image':
 			switch($convertTo){
@@ -237,7 +243,7 @@ if($success!==false){
 					#Compression
 					if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
 					
-					$shellString.=' "'.$newName.'"';
+					$shellString.=' "'.$convertTempName.'"';
 					break;
 			}
 			break;
@@ -256,23 +262,25 @@ if($success!==false){
 		exec($shellString.' 2>&1',$shellResponse,$shellResponse);
 
 		#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
-		if($shellResponse==0) $success=true;
-		else{
+		if($shellResponse==0){
+			#Some libraries replace the files; some create a new one. So we need to check both possibilities.
+			$success=rename($convertTempName,$newName);
+		}else{
 			$success=false;
 			echo 'Failed to convert the file!';
 		}
 		
-		unlink($tempName);
+		if(file_exists($tempName)) unlink($tempName);
 	}
 	else $success=rename($tempName,$newName);
 }
 
-#For testing
-//*
-$response['shell']=$shellString;
-$response['shellResponse']=$shellResponse;
-$response['originalInfo']=$tempInfo;
-//*/
+if($testing){
+	$response['shell']=$shellString;
+	$response['shellResponse']=$shellResponse;
+	$response['originalInfo']=$tempInfo;
+	$response['convertTempName']=$convertTempName;
+}
 
 $response['file']=$newName;
 $response['success']=$success;
