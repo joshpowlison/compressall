@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-
+	<title>Compressall</title>
 </head>
 <body>
 
@@ -13,6 +13,7 @@
 	-->
 	<input name="file" type="file">
 	<br><button id="testing">Submit</button>
+	<p id="message"></p>
 </form>
 
 <script>
@@ -24,14 +25,19 @@ document.getElementById("form").addEventListener("submit",function(event){
 	//Make the call
 	fetch("compressall.php",{method:'post',body:new FormData(document.getElementById("form"))})
 	.then(response=>{
-		return response.text();
+		return response.json();
+		document.getElementById("message").innerHTML="Processing...";
 	})
-	.then(text=>{
-		console.log(text);
+	.then(json=>{
+		if(json.success) document.getElementById("message").innerHTML="Success!";
+		else document.getElementById("message").innerHTML=json.message;
+		
+		console.log(json);
 	});
 });
 
 </script>
+
 
 </body>
 </html>
