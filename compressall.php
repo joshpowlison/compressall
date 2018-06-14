@@ -47,6 +47,21 @@ $packageFolder='';			#If same as current folder, keep blank
 #$packageExtension='...';	#Linux
 $packageExtension='exe';	#Windows
 
+$pathOutput='';				#Path to put the new file in. Blank is same as compressall.php's folder
+
+$conversions=[
+	'jpeg'		=>	'jpg'
+	,'audio'	=>	'mp3'
+];
+
+$compressions=[
+	'jpg'		=>	'-strip -quality 50' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+	,'png'		=>	'-define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+	#,'png'		=>	'mogrify -filter Triangle -define filter:support=2 -thumbnail 300 -unsharp 0.25x0.08+8.3+0.045 -dither None -posterize 136 -quality 82 -define jpeg:fancy-upsampling=off -define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1 -define png:exclude-chunk=all -interlace none -colorspace sRGB' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+	,'mp3'		=>	'-b:a 128k' #From http://williamyaps.blogspot.com/2016/12/i-success-with-this-command-ffmpeg-i.html
+	,'mp4'		=>	' \ -c:v libx264 -crf 19 -level 3.1 -preset slow -tune film \ -filter:v scale=-1:720 -sws_flags lanczos \ -c:a libfdk_aac -vbr 5 \ ' #From https://superuser.com/questions/582198/how-can-i-get-high-quality-low-size-mp4s-like-the-lol-release-group
+];
+
 ##########################################
 ################ GET FILE ################
 ##########################################
@@ -75,16 +90,10 @@ $finfo=finfo_open(FILEINFO_MIME_TYPE);
 $tempInfo=finfo_file($finfo,$fileOutput['tmp_name']);
 finfo_close($finfo);
 
-$json=[
-	'convert'		=>$_POST['convert']									?? false	#Whether to convert the files
-	,'compress'		=>$_POST['compress']								?? 0		#Level of compression, from 0 (none) to 5 (high)
-	,'extension'	=>pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt'	#
-	,'path'			=>$_POST['path']									?? ''		#Path to put the new file in
-	,'conversions'	=>[
-		'png'		=>	'jpg'
-		,'audio'	=>	'mp3'
-	]
-	,'success'		=>false
+$tempExtension=pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt';
+
+$response=[
+	'success'		=>false
 ];
 
 ##########################################
@@ -109,104 +118,90 @@ function makePath($path){
 	}
 }
 
-if(!empty($json['path'])) makePath($json['path']);
+if(!empty($pathOutput)) makePath($pathOutput);
 
-###############
-## SAVE FILE ##
-###############
+##########################
+##### TRANSFER FILE  #####
+##########################
 
 #Go to the folder
-if(!empty($json['path'])) chdir($json['path']);
+if(!empty($pathOutput)) chdir($pathOutput);
 
 move_uploaded_file(
 	$fileOutput['tmp_name']
-	,$tempName='temp'.time().'.'.$json['extension']
+	,$tempName='temp'.time().'.'.$tempExtension
 );
 
-###############
-### CONVERT ###
-###############
+##########################
+### CONVERT & COMPRESS ###
+##########################
 
 $tempType=explode('/',$tempInfo)[0];
-$conversion=false;
+$convertTo=$tempExtension;
 
-if($json['convert']){
+if($conversions){
 	#Check based on extension or general file type
-	if(array_key_exists($json['extension'],$json['conversions'])) $conversion=$json['conversions'][$json['extension']];
-	else if(array_key_exists($tempType,$json['conversions'])) $conversion=$json['conversions'][$tempType];
-	
-	#Don't convert if it's the type (extensions could be the same but different file type)
-	if($conversion==$json['extension']){
-		$conversion=false;
-	}else{
+	if(array_key_exists($tempExtension,$conversions)) $convertTo=$conversions[$tempExtension];
+	else if(array_key_exists($tempType,$conversions)) $convertTo=$conversions[$tempType];
+}
+
+#Get the new filename, but make sure current file doesn't exist
+$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME);
+
+$append='';
+$i=2;
+
+while(file_exists($newName.$append.'.'.$convertTo)){
+	$append='-'.$i;
+	$i++;
+}
+
+$newName.=$append.'.'.$convertTo;
+
+#Build the shell command
+$shellString=$packageFolder;
+
+switch($tempType){
+	case 'video':
+	case 'audio':
+		$shellString.='ffmpeg\ffmpeg.'.$packageExtension
+		.' -i '
+		.'"'.$tempName.'" ';
 		
-	}
-}
-
-if($conversion){
-	#Get the new filename with extension
-	$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME).'.'.$conversion;
-	
-	$shellString=$packageFolder;
-	
-	switch($tempType){
-		case 'video':
-		case 'audio':
-			$shellString='ffmpeg\ffmpeg.'.$packageExtension
-			.' -i '
-			.'"'.$tempName.'" '
-			.'"'.$newName.'"'
-			;
-			break;
-		case 'image':
-			#Exception for svg; ImageMagick doesn't support SVG
+		#Compression
+		if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
 		
-			$shellString='imagemagick\magick.'.$packageExtension
-			.' convert '
-			.'"'.$tempName.'" '
-			.'"'.$newName.'"'
-			;
-			break;
-		default:
-			echo 'This type of file is unsupported!';
-			break;
-	}
+		$shellString.=' "'.$newName.'"';
+		break;
+	case 'image':
+		#Exception for svg; ImageMagick doesn't support SVG
 	
-	#Run the shell command to convert the file
-	shell_exec($shellString);
-	
-	#Delete the temporary file, we don't need it now
-	unlink($tempName);
-}else{
-	rename($tempName,$fileOutput['name']);
+		$shellString.='imagemagick\magick.'.$packageExtension
+		.' convert '
+		.'"'.$tempName.'" ';
+		
+		#Compression
+		if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
+		
+		$shellString.=' "'.$newName.'"';
+		break;
+	default:
+		echo 'This type of file is unsupported!';
+		break;
 }
 
+#Run the shell command to convert the file
+shell_exec($shellString);
 
+#Delete the temporary file, we don't need it now
+unlink($tempName);
 
-###############
-## COMPRESS  ##
-###############
+#Basic upload
+#rename($tempName,$fileOutput['name']);
 
-#shell_exec('command_packages\ffmpeg-20180412-8d381b5-win64-static\bin\ffmpeg.exe -i '.$tempName.' '.$fileOutput['name']);
+$response['file']=$newName;
 
-if($json['compress']){
-	/*switch(pathinfo($fileOutput["name"],PATHINFO_EXTENSION)){
-		case "jpg":
-		case "jpeg":
-		case "png":
-		case "svg":
-			require('Squeezio-master/Squeezio.php');
-			$sqz = Sqz\Squeezio::getInstance($fileOutput["tmp_name"]);
-			$sqz->exec();
-			
-			$fileOutput['tmp_name']=$sqz;
-			break;
-	}*/
-}else{
-	
-}
-
-$json['success']=true;
-die(json_encode($json));
+$response['success']=true;
+die(json_encode($response));
 
 ?>

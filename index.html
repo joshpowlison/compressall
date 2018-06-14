@@ -5,22 +5,14 @@
 </head>
 <body>
 
-<h1>File upload test</h1>
+<h1>Compressall</h1>
+<p>To adjust the settings, go to compressall.php</p>
 <form id="form">
 	<!--
 		file:	the file we're uploading
-		path:	the path we're saving to
 	-->
-	<p>File</p>
 	<input name="file" type="file">
-	<p>Path</p>
-	<input name="path" type="text">
-	<p>Convert</p>
-	<input name="convert" type="text">
-	<p>Compress</p>
-	<input name="compress" value="0" type="range" min="0" max="5" step="1">
-	<p>Submit</p>
-	<button id="testing">Submit</button>
+	<br><button id="testing">Submit</button>
 </form>
 
 <script>
@@ -37,19 +29,6 @@ document.getElementById("form").addEventListener("submit",function(event){
 	.then(text=>{
 		console.log(text);
 	});
-	/*
-	.then(response=>{
-		return response.json();
-	})
-	//Work with the json
-	.then(json=>{
-		if(json.success){
-			console.log(json);
-		}else reject(json.message);
-	})
-	.catch(response=>{
-		alert("913: "+response);
-	});*/
 });
 
 </script>
