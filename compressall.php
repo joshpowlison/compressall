@@ -1,4 +1,27 @@
 <?php
+###PHP 7 required (and recommended, because it's MUST faster)###
+
+##########################################
+######### HOW TO USE COMPRESSALL #########
+##########################################
+
+/*
+Compressall is just one part of a package. In order to get full functionality, get the right services for your needs!
+
+Make sure to get either the Linux or Windows version, depending on your server.
+
+	Video, Audio:	FFMPEG http://ffmpeg.org/download.html
+	Images:			ImageMagick (Portable Version) http://www.imagemagick.org/script/download.php
+*/
+
+#Uncomment the below to show errors
+//*
+error_reporting(E_ALL);
+ini_set('display_errors',1);
+//*/
+
+#We'll store all errors and code that's echoed, so we can send that info to the user (in a way that won't break the JSON object).
+ob_start();
 
 ####THIS COULD REALLY BENEFIT FROM REACTPHP. We could take care of individual problems, such as converting, renaming, making folders, etc, individually and asyncronously####
 
@@ -16,45 +39,17 @@
 
 ***********************************/
 
+##########################################
+######### FILL OUT THE FOLLOWING #########
+##########################################
 
+$packageFolder='';			#If same as current folder, keep blank
+#$packageExtension='...';	#Linux
+$packageExtension='exe';	#Windows
 
-##############
-#####PREP#####
-##############
-
-/***FFMPEG***
-
-Used to convert and compress video and audio files.
-
-Download FFMPEG from http://ffmpeg.org/download.html
-
-***/
-
-#Linux: path to _______
-#$ffmpegPath='';
-#Windows: path to ffmpeg.exe
-$ffmpegPath='ffmpeg\windows\ffmpeg.exe';
-
-
-
-/***ImageMagick***
-
-Used to convert and compress image files (except svg).
-
-Download ImageMagick from http://www.imagemagick.org/script/download.php
-Get the portable version
-
-***/
-
-#Linux: path to _______
-#$ffmpegPath='';
-#Windows: path to magick
-$imageMagickPath='imagemagick\windows\magick.exe';
-
-
-##############
-###GET FILE###
-##############
+##########################################
+################ GET FILE ################
+##########################################
 
 #If upload failed, exit
 if($_FILES['file']['error']!==UPLOAD_ERR_OK){
@@ -75,11 +70,10 @@ if($_FILES['file']['error']!==UPLOAD_ERR_OK){
 
 $fileOutput=$_FILES["file"];
 
-
-
-##############
-###SETTINGS###
-##############
+#finfo can be spoofed, but is harder to spoof
+$finfo=finfo_open(FILEINFO_MIME_TYPE);
+$tempInfo=finfo_file($finfo,$fileOutput['tmp_name']);
+finfo_close($finfo);
 
 $json=[
 	'convert'		=>$_POST['convert']									?? false	#Whether to convert the files
@@ -87,12 +81,15 @@ $json=[
 	,'extension'	=>pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt'	#
 	,'path'			=>$_POST['path']									?? ''		#Path to put the new file in
 	,'conversions'	=>[
-		"wav"=>"flac"
-		,"mp3"=>"wav"
-		,"jpg"=>"png"
+		'png'		=>	'jpg'
+		,'audio'	=>	'mp3'
 	]
 	,'success'		=>false
 ];
+
+##########################################
+################## CODE ##################
+##########################################
 
 #Go through all the folders listed and make sure they exist
 function makePath($path){
@@ -114,11 +111,9 @@ function makePath($path){
 
 if(!empty($json['path'])) makePath($json['path']);
 
-
-
-##############
-###SAVE FILE##
-##############
+###############
+## SAVE FILE ##
+###############
 
 #Go to the folder
 if(!empty($json['path'])) chdir($json['path']);
@@ -128,48 +123,54 @@ move_uploaded_file(
 	,$tempName='temp'.time().'.'.$json['extension']
 );
 
+###############
+### CONVERT ###
+###############
 
+$tempType=explode('/',$tempInfo)[0];
+$conversion=false;
 
-##############
-####CONVERT###
-##############
-
-if($json['convert'] && array_key_exists($json['extension'],$json['conversions'])){
-	$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME).'.'.$json['conversions'][$json['extension']];
+if($json['convert']){
+	#Check based on extension or general file type
+	if(array_key_exists($json['extension'],$json['conversions'])) $conversion=$json['conversions'][$json['extension']];
+	else if(array_key_exists($tempType,$json['conversions'])) $conversion=$json['conversions'][$tempType];
 	
-	switch($json['extension']){
-		#Video
-		case 'mp4':
-		case 'webm':
-		#Audio
-		case 'mp3':
-		case 'wav':
-		case 'flac':
-			$shellString=$ffmpegPath
+	#Don't convert if it's the type (extensions could be the same but different file type)
+	if($conversion==$json['extension']){
+		$conversion=false;
+	}else{
+		
+	}
+}
+
+if($conversion){
+	#Get the new filename with extension
+	$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME).'.'.$conversion;
+	
+	$shellString=$packageFolder;
+	
+	switch($tempType){
+		case 'video':
+		case 'audio':
+			$shellString='ffmpeg\ffmpeg.'.$packageExtension
 			.' -i '
-			#Old file name
 			.'"'.$tempName.'" '
-			#New file name and extension
 			.'"'.$newName.'"'
 			;
 			break;
-		#Images
-		case 'jpg':
-		case 'jpeg':
-		case 'png':
-			$shellString=$imageMagickPath
+		case 'image':
+			#Exception for svg; ImageMagick doesn't support SVG
+		
+			$shellString='imagemagick\magick.'.$packageExtension
 			.' convert '
-			#Old file name
 			.'"'.$tempName.'" '
-			#New file name and extension
 			.'"'.$newName.'"'
 			;
+			break;
+		default:
+			echo 'This type of file is unsupported!';
 			break;
 	}
-	
-	
-	
-	#die($shellString);
 	
 	#Run the shell command to convert the file
 	shell_exec($shellString);
@@ -182,9 +183,9 @@ if($json['convert'] && array_key_exists($json['extension'],$json['conversions'])
 
 
 
-##############
-###COMPRESS###
-##############
+###############
+## COMPRESS  ##
+###############
 
 #shell_exec('command_packages\ffmpeg-20180412-8d381b5-win64-static\bin\ffmpeg.exe -i '.$tempName.' '.$fileOutput['name']);
 
