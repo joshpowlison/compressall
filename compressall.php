@@ -81,6 +81,9 @@ $compressions=[
 ################## CODE ##################
 ##########################################
 
+#Null=OK; true=success; false=failure
+$success=null;
+
 #Get file
 
 if($_FILES['file']['error']!==UPLOAD_ERR_OK){
@@ -95,32 +98,35 @@ if($_FILES['file']['error']!==UPLOAD_ERR_OK){
 		,'Failed to write to disk!'
 		,'A PHP extension stopped the upload!'
 	][$_FILES['file']['error']];
+	
+	$success=false;
 }
 
-$fileOutput=$_FILES["file"];
+if($success!==false){
+	$fileOutput=$_FILES["file"];
 
-#finfo can be spoofed, but is harder to spoof
-$finfo=finfo_open(FILEINFO_MIME_TYPE);
-$tempInfo=finfo_file($finfo,$fileOutput['tmp_name']);
-finfo_close($finfo);
-$tempType=explode('/',$tempInfo)[0];
+	#finfo can be spoofed, but is harder to spoof
+	$finfo=finfo_open(FILEINFO_MIME_TYPE);
+	$tempInfo=finfo_file($finfo,$fileOutput['tmp_name']);
+	finfo_close($finfo);
+	$tempType=explode('/',$tempInfo)[0];
 
-$tempExtension=pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt';
+	$tempExtension=pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt';
 
-$response=[
-	'success'	=>false
-];
-
-#Check file against whitelist and blacklist
-if(
-	(in_array($tempType,$blacklist)
-	or in_array($tempExtension,$blacklist))
-	or
-	(!empty($whitelist) and
-		(!in_array($tempType,$whitelist)
-		and !in_array($tempExtension,$whitelist))
-	)
-) echo 'That file type isn\'t allowed!';
+	#Check file against whitelist and blacklist
+	if(
+		(in_array($tempType,$blacklist)
+		or in_array($tempExtension,$blacklist))
+		or
+		(!empty($whitelist) and
+			(!in_array($tempType,$whitelist)
+			and !in_array($tempExtension,$whitelist))
+		)
+	){
+		echo 'That file type isn\'t allowed!';
+		$success=false;
+	}
+}
 
 #Go through all the folders listed and make sure they exist
 function makePath($path){
@@ -149,107 +155,117 @@ if(!empty($pathOutput)) makePath($pathOutput);
 #Go to the folder
 if(!empty($pathOutput)) chdir($pathOutput);
 
-move_uploaded_file(
+if(!move_uploaded_file(
 	$fileOutput['tmp_name']
 	,$tempName='temp'.time().'.'.$tempExtension
-);
+)){
+	$success=false;
+	echo 'Failed to move the file!';
+}
 
 ##########################
 ### CONVERT & COMPRESS ###
 ##########################
 
-$convertTo=$tempExtension;
+if($success!==false){
+	$convertTo=$tempExtension;
 
-if($conversions){
-	#Check based on extension or general file type
-	if(array_key_exists($tempExtension,$conversions)) $convertTo=$conversions[$tempExtension];
-	else if(array_key_exists($tempType,$conversions)) $convertTo=$conversions[$tempType];
-}
+	if($conversions){
+		#Check based on extension or general file type
+		if(array_key_exists($tempExtension,$conversions)) $convertTo=$conversions[$tempExtension];
+		else if(array_key_exists($tempType,$conversions)) $convertTo=$conversions[$tempType];
+	}
 
-#LibreOffice uses : for special conversion values
-$convertTo=explode(':',$convertTo)[0];
+	#LibreOffice uses : for special conversion values
+	$convertTo=explode(':',$convertTo)[0];
 
-#Get the new filename, but make sure current file doesn't exist
-$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME);
+	#Get the new filename, but make sure current file doesn't exist
+	$newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME);
 
-$append='';
-$i=2;
+	$append='';
+	$i=2;
 
-while(file_exists($newName.$append.'.'.$convertTo)){
-	$append='-'.$i;
-	$i++;
-}
+	while(file_exists($newName.$append.'.'.$convertTo)){
+		$append='-'.$i;
+		$i++;
+	}
 
-$newName.=$append.'.'.$convertTo;
+	$newName.=$append.'.'.$convertTo;
 
-#Build the shell command
-$shellString=null;
+	#Build the shell command
+	$shellString=null;
 
-switch($tempType){
-	#Used for a lot of special documents
-	case 'application':
-		switch($tempExtension){
-			case 'doc':
-			case 'docx':
-			case 'odt':
-			case 'pdf':
-				$shellString='"'.$libraries.'\libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
-				break;
-			default:
-				break;
-		}
-		break;
-	case 'text':
-		if(array_key_exists($tempExtension,$conversions)) $shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
-		break;
-	case 'video':
-	case 'audio':
-		$shellString=$libraries.'ffmpeg/ffmpeg.'.($os=='windows' ? 'exe' : 'bin')
-		.' -i '
-		.'"'.$tempName.'" ';
-		
-		#Compression
-		if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
-		
-		$shellString.=' "'.$newName.'"';
-		break;
-	case 'image':
-		switch($convertTo){
-			#Exception for svg; ImageMagick doesn't support SVG
-				case 'svg':
-				break;
-			default:
+	switch($tempType){
+		#Used for a lot of special documents
+		case 'application':
+			switch($tempExtension){
+				case 'doc':
+				case 'docx':
+				case 'odt':
+				case 'pdf':
+					$shellString='"'.$libraries.'\libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+					break;
+				default:
+					break;
+			}
+			break;
+		case 'text':
+			if(array_key_exists($tempExtension,$conversions)) $shellString='"'.$libraries.'libreoffice/program/soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+			break;
+		case 'video':
+		case 'audio':
+			$shellString=$libraries.'ffmpeg/ffmpeg.'.($os=='windows' ? 'exe' : 'bin')
+			.' -i '
+			.'"'.$tempName.'" ';
 			
-				$shellString=$libraries.'imagemagick/magick.'.($os=='windows' ? 'exe' : 'bin')
-				.' convert '
-				.'"'.$tempName.'" ';
+			#Compression
+			if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
+			
+			$shellString.=' "'.$newName.'"';
+			break;
+		case 'image':
+			switch($convertTo){
+				#Exception for svg; ImageMagick doesn't support SVG
+					case 'svg':
+					break;
+				default:
 				
-				#Compression
-				if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
-				
-				$shellString.=' "'.$newName.'"';
-				break;
+					$shellString=$libraries.'imagemagick/magick.'.($os=='windows' ? 'exe' : 'bin')
+					.' convert '
+					.'"'.$tempName.'" ';
+					
+					#Compression
+					if(array_key_exists($convertTo,$compressions)) $shellString.=$compressions[$convertTo];
+					
+					$shellString.=' "'.$newName.'"';
+					break;
+			}
+			break;
+		default:
+			echo 'This type of file is unsupported! '.$tempInfo;
+			break;
+	}
+}
+
+if($success!==false){
+	$shellResponse=[];
+	#Not every option uses shell commands
+	if(!empty($shellString)){
+		if($os='windows') $shellString=str_replace('/','\\',$shellString);
+		
+		exec($shellString.' 2>&1',$shellResponse,$shellResponse);
+
+		#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
+		if($shellResponse==0) $success=true;
+		else{
+			$success=false;
+			echo 'Failed to convert the file!';
 		}
-		break;
-	default:
-		echo 'This type of file is unsupported! '.$tempInfo;
-		break;
+		
+		unlink($tempName);
+	}
+	else $success=rename($tempName,$newName);
 }
-
-$shellResponse=[];
-#Not every option uses shell commands
-if(!empty($shellString)){
-	if($os='windows') $shellString=str_replace('/','\\',$shellString);
-	
-	exec($shellString.' 2>&1',$shellResponse,$shellResponse);
-
-	#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
-	if($shellResponse==0) $response['success']=true;
-	else echo 'Failed to convert the file!';
-	
-	unlink($tempName);
-}
-else $response['success']=rename($tempName,$newName);
 
 #For testing
 //*
@@ -259,6 +275,7 @@ $response['originalInfo']=$tempInfo;
 //*/
 
 $response['file']=$newName;
+$response['success']=$success;
 $response['message']=ob_get_clean();
 die(json_encode($response));
 
