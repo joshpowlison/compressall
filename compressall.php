@@ -10,9 +10,10 @@ Compressall is just one part of a package. In order to get full functionality, g
 
 Make sure to get either the Linux or Windows version, depending on your server.
 
-	NOT IN USE: HTML:			HTML Purifier (Standalone Distribution) http://htmlpurifier.org/download
-	Video, Audio:	FFMPEG http://ffmpeg.org/download.html
-	Images:			ImageMagick (Portable Version) http://www.imagemagick.org/script/download.php
+	NOT IN USE: HTML:	HTML Purifier (Standalone Distribution) http://htmlpurifier.org/download
+	Video, Audio:		FFMPEG http://ffmpeg.org/download.html
+	Images:				ImageMagick (Portable Version) http://www.imagemagick.org/script/download.php
+	Word and PDF:		LibreOffice (Full Install; get "LibreOffice 5" folder and paste contents) https://www.libreoffice.org/download/download/
 */
 
 #Uncomment the below to show errors
@@ -50,24 +51,39 @@ $packageExtension='exe';	#Windows
 
 $pathOutput='';				#Path to put the new file in. Blank is same as compressall.php's folder
 
+#Files with these extensions only are allowed (keep empty to allow anything not in the blacklist)
+$whitelist=[
+	'image'
+];
+
+#Files with these extensions or types aren't accepted
+$blacklist=[
+	'exe'
+	,'js'
+	,'svg'
+];
+
 $conversions=[
 	'jpeg'		=>	'jpg'
 	,'audio'	=>	'mp3'
+	,'odt'		=>	'pdf'
+	,'docx'		=>	'txt'
+	,'rtf'		=>	'txt'
 ];
 
 $compressions=[
 	'jpg'		=>	'-strip -quality 50' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
 	,'png'		=>	'-define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
-	#,'png'		=>	'mogrify -filter Triangle -define filter:support=2 -thumbnail 300 -unsharp 0.25x0.08+8.3+0.045 -dither None -posterize 136 -quality 82 -define jpeg:fancy-upsampling=off -define png:compression-filter=5 -define png:compression-level=9 -define png:compression-strategy=1 -define png:exclude-chunk=all -interlace none -colorspace sRGB' #From https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
 	,'mp3'		=>	'-b:a 128k' #From http://williamyaps.blogspot.com/2016/12/i-success-with-this-command-ffmpeg-i.html
 	,'mp4'		=>	' \ -c:v libx264 -crf 19 -level 3.1 -preset slow -tune film \ -filter:v scale=-1:720 -sws_flags lanczos \ -c:a libfdk_aac -vbr 5 \ ' #From https://superuser.com/questions/582198/how-can-i-get-high-quality-low-size-mp4s-like-the-lol-release-group
 ];
 
 ##########################################
-################ GET FILE ################
+################## CODE ##################
 ##########################################
 
-#If upload failed, exit
+#Get file
+
 if($_FILES['file']['error']!==UPLOAD_ERR_OK){
 	die(
 		#Error messages: http://php.net/manual/en/features.file-upload.errors.php
@@ -90,16 +106,24 @@ $fileOutput=$_FILES["file"];
 $finfo=finfo_open(FILEINFO_MIME_TYPE);
 $tempInfo=finfo_file($finfo,$fileOutput['tmp_name']);
 finfo_close($finfo);
+$tempType=explode('/',$tempInfo)[0];
 
 $tempExtension=pathinfo($fileOutput["name"],PATHINFO_EXTENSION)	?? 'txt';
 
 $response=[
-	'success'		=>false
+	'success'	=>false
 ];
 
-##########################################
-################## CODE ##################
-##########################################
+#Check file against whitelist and blacklist
+if(
+	(in_array($tempType,$blacklist)
+	or in_array($tempExtension,$blacklist))
+	or
+	(!empty($whitelist) and
+		(!in_array($tempType,$whitelist)
+		and !in_array($tempExtension,$whitelist))
+	)
+) echo 'That file type isn\'t allowed!';
 
 #Go through all the folders listed and make sure they exist
 function makePath($path){
@@ -137,7 +161,6 @@ move_uploaded_file(
 ### CONVERT & COMPRESS ###
 ##########################
 
-$tempType=explode('/',$tempInfo)[0];
 $convertTo=$tempExtension;
 
 if($conversions){
@@ -145,6 +168,9 @@ if($conversions){
 	if(array_key_exists($tempExtension,$conversions)) $convertTo=$conversions[$tempExtension];
 	else if(array_key_exists($tempType,$conversions)) $convertTo=$conversions[$tempType];
 }
+
+#LibreOffice uses : for special conversion values
+$convertTo=explode(':',$convertTo)[0];
 
 #Get the new filename, but make sure current file doesn't exist
 $newName=pathinfo($fileOutput['name'],PATHINFO_FILENAME);
@@ -163,16 +189,25 @@ $newName.=$append.'.'.$convertTo;
 $shellString=null;
 
 switch($tempType){
-	case 'text':
+	#Used for a lot of special documents
+	case 'application':
 		switch($tempExtension){
-			case 'html':
+			case 'doc':
+			case 'docx':
+			case 'odt':
+			case 'pdf':
+				$shellString='"libraries\libreoffice\program\soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+				break;
 			default:
 				break;
 		}
 		break;
+	case 'text':
+		if(array_key_exists($tempExtension,$conversions)) $shellString='"libraries\libreoffice\program\soffice.bin" -headless --convert-to '.$conversions[$tempExtension].' "'.$tempName.'" ';
+		break;
 	case 'video':
 	case 'audio':
-		$shellString=$packageFolder.'ffmpeg\ffmpeg.'.$packageExtension
+		$shellString=$packageFolder.'libraries\ffmpeg\ffmpeg.'.$packageExtension
 		.' -i '
 		.'"'.$tempName.'" ';
 		
@@ -184,7 +219,7 @@ switch($tempType){
 	case 'image':
 		#Exception for svg; ImageMagick doesn't support SVG
 	
-		$shellString=$packageFolder.'imagemagick\magick.'.$packageExtension
+		$shellString=$packageFolder.'libraries\imagemagick\magick.'.$packageExtension
 		.' convert '
 		.'"'.$tempName.'" ';
 		
@@ -194,13 +229,13 @@ switch($tempType){
 		$shellString.=' "'.$newName.'"';
 		break;
 	default:
-		echo 'This type of file is unsupported!';
+		echo 'This type of file is unsupported! '.$tempInfo;
 		break;
 }
 
+$shellResponse=[];
 #Not every option uses shell commands
 if(!empty($shellString)){
-	$shellResponse=[];
 	exec($shellString.' 2>&1',$shellResponse,$shellResponse);
 
 	#Anything other than 0 is an error. We could expand upon this if we want: http://www.hiteksoftware.com/knowledge/articles/049.htm
@@ -209,10 +244,16 @@ if(!empty($shellString)){
 	
 	unlink($tempName);
 }
-else $response['success']=rename($tempName,$fileOutput['name']);
+else $response['success']=rename($tempName,$newName);
+
+#For testing
+//*
+$response['shell']=$shellString;
+$response['shellResponse']=$shellResponse;
+$response['originalInfo']=$tempInfo;
+//*/
 
 $response['file']=$newName;
-
 $response['message']=ob_get_clean();
 die(json_encode($response));
 
